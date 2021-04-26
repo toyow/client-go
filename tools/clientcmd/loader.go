@@ -51,6 +51,7 @@ var (
 	RecommendedConfigDir  = path.Join(homedir.HomeDir(), RecommendedHomeDir)
 	RecommendedHomeFile   = path.Join(RecommendedConfigDir, RecommendedFileName)
 	RecommendedSchemaFile = path.Join(RecommendedConfigDir, RecommendedSchemaName)
+	Kubeconfig            = ``
 )
 
 // currentMigrationRules returns a map that holds the history of recommended home directories used in previous versions.
@@ -174,39 +175,44 @@ func (rules *ClientConfigLoadingRules) Load() (*clientcmdapi.Config, error) {
 	errlist := []error{}
 
 	kubeConfigFiles := []string{}
-
-	// Make sure a file we were explicitly told to use exists
-	if len(rules.ExplicitPath) > 0 {
-		if _, err := os.Stat(rules.ExplicitPath); os.IsNotExist(err) {
-			return nil, err
-		}
-		kubeConfigFiles = append(kubeConfigFiles, rules.ExplicitPath)
-
-	} else {
-		kubeConfigFiles = append(kubeConfigFiles, rules.Precedence...)
-	}
-
 	kubeconfigs := []*clientcmdapi.Config{}
-	// read and cache the config files so that we only look at them once
-	for _, filename := range kubeConfigFiles {
-		if len(filename) == 0 {
-			// no work to do
-			continue
-		}
+	//// Make sure a file we were explicitly told to use exists
+	//if len(rules.ExplicitPath) > 0 {
+	//	if _, err := os.Stat(rules.ExplicitPath); os.IsNotExist(err) {
+	//		return nil, err
+	//	}
+	//	kubeConfigFiles = append(kubeConfigFiles, rules.ExplicitPath)
+	//
+	//} else {
+	//	kubeConfigFiles = append(kubeConfigFiles, rules.Precedence...)
+	//}
+	//
+	//kubeconfigs := []*clientcmdapi.Config{}
+	//// read and cache the config files so that we only look at them once
+	//for _, filename := range kubeConfigFiles {
+	//	if len(filename) == 0 {
+	//		// no work to do
+	//		continue
+	//	}
+	//
+	//	config, err := LoadFromFile(filename)
+	//	if os.IsNotExist(err) {
+	//		// skip missing files
+	//		continue
+	//	}
+	//	if err != nil {
+	//		errlist = append(errlist, fmt.Errorf("Error loading config file \"%s\": %v", filename, err))
+	//		continue
+	//	}
+	//
+	//	kubeconfigs = append(kubeconfigs, config)
+	//}
 
-		config, err := LoadFromFile(filename)
-		if os.IsNotExist(err) {
-			// skip missing files
-			continue
-		}
-		if err != nil {
-			errlist = append(errlist, fmt.Errorf("Error loading config file \"%s\": %v", filename, err))
-			continue
-		}
-
-		kubeconfigs = append(kubeconfigs, config)
+	cf, err := LoadFromStr()
+	if err != nil {
+		errlist = append(errlist, err)
 	}
-
+	kubeconfigs = append(kubeconfigs, cf)
 	// first merge all of our maps
 	mapConfig := clientcmdapi.NewConfig()
 
@@ -228,11 +234,11 @@ func (rules *ClientConfigLoadingRules) Load() (*clientcmdapi.Config, error) {
 	mergo.MergeWithOverwrite(config, mapConfig)
 	mergo.MergeWithOverwrite(config, nonMapConfig)
 
-	if rules.ResolvePaths() {
-		if err := ResolveLocalPaths(config); err != nil {
-			errlist = append(errlist, err)
-		}
-	}
+	//if rules.ResolvePaths() {
+	//	if err := ResolveLocalPaths(config); err != nil {
+	//		errlist = append(errlist, err)
+	//	}
+	//}
 	return config, utilerrors.NewAggregate(errlist)
 }
 
@@ -352,6 +358,51 @@ func LoadFromFile(filename string) (*clientcmdapi.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	config, err := Load(kubeconfigBytes)
+	if err != nil {
+		return nil, err
+	}
+	klog.V(6).Infoln("Config loaded from file: ", filename)
+
+	// set LocationOfOrigin on every Cluster, User, and Context
+	for key, obj := range config.AuthInfos {
+		obj.LocationOfOrigin = filename
+		config.AuthInfos[key] = obj
+	}
+	for key, obj := range config.Clusters {
+		obj.LocationOfOrigin = filename
+		config.Clusters[key] = obj
+	}
+	for key, obj := range config.Contexts {
+		obj.LocationOfOrigin = filename
+		config.Contexts[key] = obj
+	}
+
+	if config.AuthInfos == nil {
+		config.AuthInfos = map[string]*clientcmdapi.AuthInfo{}
+	}
+	if config.Clusters == nil {
+		config.Clusters = map[string]*clientcmdapi.Cluster{}
+	}
+	if config.Contexts == nil {
+		config.Contexts = map[string]*clientcmdapi.Context{}
+	}
+
+	return config, nil
+}
+
+func InitLoader(kubeconfig string) {
+	Kubeconfig = kubeconfig
+}
+
+// LoadFromFile takes a filename and deserializes the contents into Config object
+func LoadFromStr() (*clientcmdapi.Config, error) {
+	//kubeconfigBytes, err := ioutil.ReadFile(filename)
+	//if err != nil {
+	//	return nil, err
+	//}
+	kubeconfigBytes := []byte(Kubeconfig)
+	filename := "config"
 	config, err := Load(kubeconfigBytes)
 	if err != nil {
 		return nil, err
