@@ -174,7 +174,6 @@ func (rules *ClientConfigLoadingRules) Load() (*clientcmdapi.Config, error) {
 
 	errlist := []error{}
 
-	kubeConfigFiles := []string{}
 	kubeconfigs := []*clientcmdapi.Config{}
 	//// Make sure a file we were explicitly told to use exists
 	//if len(rules.ExplicitPath) > 0 {
